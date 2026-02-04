@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
+import { apiClient } from '../lib/api';
+import { isAuthenticated } from '../lib/auth';
 
 // Verdict thresholds
 // ≥ 26: Normal
@@ -35,6 +37,11 @@ const FinalReport: React.FC = () => {
     // Education correction
     const [educationAdjust, setEducationAdjust] = useState(false); // <= 12 years
 
+    // Tracked evaluation (from dashboard): can save to backend
+    const [trackedEvaluation, setTrackedEvaluation] = useState<{ testId: string } | null>(null);
+    const [saving, setSaving] = useState(false);
+    const [saveDone, setSaveDone] = useState(false);
+
     // Load from LocalStorage on mount
     useEffect(() => {
         // We expect keys like `moca_${testId}_${moduleName}` or a single JSON object
@@ -61,6 +68,17 @@ const FinalReport: React.FC = () => {
         // Attention & Language are manual input here, init with 0
     }, [testId]);
 
+    // If user is logged in, check if this testId is a tracked evaluation (from dashboard)
+    useEffect(() => {
+        if (!testId || !isAuthenticated()) return;
+        apiClient()
+            .get(`/evaluations/by-test/${testId}`)
+            .then((res) => {
+                if (res.data?.status === 'in_progress') setTrackedEvaluation({ testId });
+            })
+            .catch(() => {});
+    }, [testId]);
+
     // Calculate Total
     const baseTotal = visuospatialScore + namingScore + memoryScore + attentionScore + languageScore + abstractionScore + delayedRecallScore + orientationScore;
     const finalTotal = Math.min(30, baseTotal + (educationAdjust ? 1 : 0)); // Max 30
@@ -75,6 +93,29 @@ const FinalReport: React.FC = () => {
     };
 
     const verdict = getVerdict(finalTotal);
+
+    const handleSaveReport = () => {
+        if (!trackedEvaluation?.testId) return;
+        setSaving(true);
+        apiClient()
+            .post('/evaluations/complete-by-test', {
+                testId: trackedEvaluation.testId,
+                visuospatial: visuospatialScore,
+                naming: namingScore,
+                attention: attentionScore,
+                language: languageScore,
+                abstraction: abstractionScore,
+                delayedRecall: delayedRecallScore,
+                orientation: orientationScore,
+                educationAdjust,
+            })
+            .then(() => {
+                setSaveDone(true);
+                setTrackedEvaluation(null);
+            })
+            .catch(() => setSaving(false))
+            .finally(() => setSaving(false));
+    };
 
     return (
         <div className="min-h-screen bg-slate-50 py-12 px-4">
@@ -188,9 +229,16 @@ const FinalReport: React.FC = () => {
                         </div>
                     </div>
 
-                    <div className="mt-8 flex justify-center gap-4">
+                    <div className="mt-8 flex flex-wrap justify-center gap-4">
+                        {trackedEvaluation && !saveDone && (
+                            <Button onClick={handleSaveReport} disabled={saving}>
+                                {saving ? 'Guardando...' : 'Guardar reporte en el dashboard'}
+                            </Button>
+                        )}
+                        {saveDone && <span className="text-green-600 font-medium">Reporte guardado correctamente.</span>}
                         <Button onClick={() => window.print()} variant="outline">Imprimir Reporte</Button>
-                        <Button onClick={() => navigate('/')} variant="primary">Volver al Inicio</Button>
+                        <Button onClick={() => navigate('/dashboard')} variant="primary">Ir al Dashboard</Button>
+                        <Button onClick={() => navigate('/')} variant="outline">Volver al Inicio</Button>
                     </div>
                 </Card>
             </div>

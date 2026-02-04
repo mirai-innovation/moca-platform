@@ -2,8 +2,10 @@ import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { Navbar } from '../components/layout/Navbar';
 import { Footer } from '../components/layout/Footer';
+import { getStoredUser } from '../lib/auth';
 
 export default function LandingPage() {
+    const user = getStoredUser();
     return (
         <div className="min-h-screen bg-slate-50 flex flex-col">
             <Navbar />
@@ -28,7 +30,7 @@ export default function LandingPage() {
                                 <Button href="/tests/demo/visuospatial" size="lg" className="w-full sm:w-auto shadow-lg shadow-brand-500/20">
                                     Iniciar Evaluación
                                 </Button>
-                                <Button href="/login" variant="secondary" size="lg" className="w-full sm:w-auto">
+                                <Button href={user ? "/dashboard" : "/login"} variant="secondary" size="lg" className="w-full sm:w-auto">
                                     Acceso Profesional
                                 </Button>
                             </div>
@@ -98,7 +100,7 @@ export default function LandingPage() {
                                         Exportación de reportes PDF
                                     </li>
                                 </ul>
-                                <Button href="/login" fullWidth variant="outline">Acceso Profesional</Button>
+                                <Button href={user ? "/dashboard" : "/login"} fullWidth variant="outline">Acceso Profesional</Button>
                             </Card>
                         </div>
                     </div>
