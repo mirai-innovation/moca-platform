@@ -12,6 +12,9 @@ import { VisuospatialModule } from './visuospatial/visuospatial.module';
 import { AbstractionModule } from './abstraction/abstraction.module';
 import { DelayedRecallModule } from './delayed-recall/delayed-recall.module';
 import { OrientationModule } from './orientation/orientation.module';
+import { AttentionModule } from './attention/attention.module';
+import { LanguageModule } from './language/language.module';
+import { TranscribeModule } from './transcribe/transcribe.module';
 
 @Module({
   imports: [
@@ -33,7 +36,10 @@ import { OrientationModule } from './orientation/orientation.module';
     VisuospatialModule,
     AbstractionModule,
     DelayedRecallModule,
-    OrientationModule
+    OrientationModule,
+    AttentionModule,
+    LanguageModule,
+    TranscribeModule
   ],
   controllers: [AppController],
   providers: [AppService],

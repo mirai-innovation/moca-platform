@@ -34,67 +34,52 @@ export default function VisuospatialTest() {
     const navigate = useNavigate();
     const [currentStepIndex, setCurrentStepIndex] = useState(0);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [lastEvalResult, setLastEvalResult] = useState<any>(null);
+    // Puntaje por sub-tarea (se guarda internamente; el paciente NO ve resultados)
+    const [scores, setScores] = useState<Record<string, number>>({});
     const padRef = useRef<CanvasPadRef>(null);
 
     const currentStep = STEPS[currentStepIndex];
 
-    const handleNext = () => {
-        if (currentStepIndex < STEPS.length - 1) {
-            setLastEvalResult(null);
-            setCurrentStepIndex(prev => prev + 1);
-        } else {
-            // Finished Visuospatial -> Go to Naming
-            navigate(`/tests/${testId}/naming`);
-        }
+    const persistTotal = (updated: Record<string, number>) => {
+        const total = Object.values(updated).reduce((a, b) => a + b, 0);
+        localStorage.setItem(`moca_${testId}_visuospatial`, total.toString());
     };
 
     const handlePrev = () => {
         if (currentStepIndex > 0) {
-            setLastEvalResult(null);
             setCurrentStepIndex(prev => prev - 1);
         }
     };
 
+    // Evalúa el dibujo en segundo plano y avanza. El resultado NO se muestra al paciente:
+    // solo se acumula el puntaje para el reporte del dashboard.
     const handleEvaluate = async (blob: Blob | null, base64: string) => {
         if (!blob) return;
         setIsSubmitting(true);
 
         try {
-            // 1. Submit Drawing
             const submitResponse = await axios.post(`${API_URL}/tests/${testId}/visuospatial/${currentStep.id}/submissions`, {
                 imageBase64: base64,
-                metadata: {
-                    timestamp: Date.now(),
-                    deviceType: 'web'
-                }
+                metadata: { timestamp: Date.now(), deviceType: 'web' }
             });
 
             const { submissionId } = submitResponse.data;
 
-            // 2. Evaluate (Auto-trigger for demo purposes, normally might be separate)
             const evalResponse = await axios.post(`${API_URL}/tests/${testId}/visuospatial/${currentStep.id}/evaluate`, {
                 submissionId
             });
 
-            console.log('Evaluation Result:', evalResponse.data);
-            setLastEvalResult(evalResponse.data);
+            const score = Number(evalResponse.data?.score) || 0;
+            const updated = { ...scores, [currentStep.id]: score };
+            setScores(updated);
+            persistTotal(updated);
 
-            // Wait a moment then clear/proceed? Or just show next button?
-            // For this flow, we'll auto-advance after showing a brief "Saved" or just advance.
-            // But let's let the user manually advance or reviewing result first?
-
-            // For now, let's just alert the score (debug) and move on
-            // alert(`Evaluación AI: ${evalResponse.data.score}/${evalResponse.data.maxScore}\n${evalResponse.data.observations}`);
-
-            // alert(`Evaluación AI: ${evalResponse.data.score}/${evalResponse.data.maxScore}\n${evalResponse.data.observations}`);
-
-            // Save to LocalStorage for Final Report
-            localStorage.setItem(`moca_${testId}_visuospatial`, evalResponse.data.score.toString());
-
-            // NOTE: We do NOT auto-advance anymore. User clicks "Continuar".
-
-
+            // Avanza al siguiente módulo/paso sin mostrar el resultado
+            if (currentStepIndex < STEPS.length - 1) {
+                setCurrentStepIndex(prev => prev + 1);
+            } else {
+                navigate(`/tests/${testId}/naming`);
+            }
         } catch (error) {
             console.error(error);
             alert('Error al enviar. Revise la consola.');
@@ -161,54 +146,13 @@ export default function VisuospatialTest() {
                             <Button
                                 onClick={() => padRef.current?.save()}
                                 disabled={isSubmitting}
-                                className="bg-brand-600 hover:bg-brand-700 text-white"
-                            >
-                                {isSubmitting ? 'Evaluando...' : 'Evaluar con IA'}
-                            </Button>
-
-                            <Button
                                 variant="primary"
-                                onClick={handleNext}
-                                disabled={isSubmitting}
                             >
-                                Continuar →
+                                {isSubmitting ? 'Guardando...' : (currentStepIndex < STEPS.length - 1 ? 'Continuar →' : 'Finalizar sección →')}
                             </Button>
                         </div>
                     </div>
                 </Card>
-
-                {lastEvalResult && (
-                    <div className={`p-4 rounded-lg border content-center ${lastEvalResult.score >= 1 ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
-                        <div className="flex justify-between items-start mb-2">
-                            <div>
-                                <h3 className="font-bold text-lg">Resultado: {lastEvalResult.score}/{lastEvalResult.maxScore}</h3>
-                                <p className="text-sm opacity-75">Confianza: {(lastEvalResult.confidence * 100).toFixed(0)}%</p>
-                            </div>
-                            {lastEvalResult.unscorable && <span className="bg-red-100 text-red-800 px-2 py-1 rounded text-xs font-bold">NO EVALUABLE</span>}
-                        </div>
-
-                        <p className="mb-4 font-medium">{lastEvalResult.overallNotes}</p>
-
-                        {lastEvalResult.checks && (
-                            <div className="space-y-2 mt-4 text-sm">
-                                <h4 className="font-semibold border-b pb-1 border-current opacity-20">Detalles de Criterios:</h4>
-                                {Object.entries(lastEvalResult.checks).map(([key, val]: [string, any]) => (
-                                    val ? (
-                                        <div key={key} className="flex gap-2">
-                                            <span className={val.pass ? "text-green-600 font-bold" : "text-red-500 font-bold"}>
-                                                {val.pass ? "✓" : "✗"}
-                                            </span>
-                                            <div>
-                                                <span className="capitalize font-medium">{key}: </span>
-                                                <span className="opacity-80">{val.notes}</span>
-                                            </div>
-                                        </div>
-                                    ) : null
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                )}
             </div>
         </div>
     );

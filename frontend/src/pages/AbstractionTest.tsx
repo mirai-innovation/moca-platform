@@ -5,6 +5,8 @@ import { Card } from '../components/ui/Card';
 import { useTTS } from '../hooks/useTTS';
 import axios from 'axios';
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
 const AbstractionTest: React.FC = () => {
     const { testId } = useParams<{ testId: string }>();
     const navigate = useNavigate();
@@ -54,7 +56,7 @@ const AbstractionTest: React.FC = () => {
                     }
                 }
                 // Train - Bicycle
-                const res1 = await axios.post(`http://localhost:3000/abstraction/submit`, {
+                const res1 = await axios.post(`${API_URL}/abstraction/submit`, {
                     testId,
                     taskId: "ABSTRACTION_TRAIN",
                     data: { response: inputValue },
@@ -71,7 +73,7 @@ const AbstractionTest: React.FC = () => {
                 setInputValue('');
             } else if (step === 2) {
                 // Watch - Ruler
-                const res2 = await axios.post(`http://localhost:3000/abstraction/submit`, {
+                const res2 = await axios.post(`${API_URL}/abstraction/submit`, {
                     testId,
                     taskId: "ABSTRACTION_WATCH",
                     data: { response: inputValue },

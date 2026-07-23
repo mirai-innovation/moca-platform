@@ -1,72 +1,36 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
+import { VoiceRecorder, TranscriptBox } from '../components/ui/VoiceRecorder';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 // Task Configuration
 const DIGITS_FORWARD = ['2', '1', '8', '5', '4'];
 const DIGITS_BACKWARD = ['7', '4', '2'];
 const LETTERS_SEQUENCE = "F B A C M N A A J K L B A F A K D E A A A J A M O F A A B".split(' ');
 
-// Web Speech API Types
-interface IWindow extends Window {
-    webkitSpeechRecognition: any;
-    SpeechRecognition: any;
-}
-
 export default function AttentionTest() {
     const { testId = 'demo-test' } = useParams();
     const navigate = useNavigate();
 
-    // Steps: 0=Intro, 1=DigitsForward, 2=DigitsBackward, 3=Letters, 4=Serial7, 5=Finish
+    // Steps: 0=Intro, 1=DigitsForward, 2=DigitsBackward, 3=Letters, 4=Serial7
     const [currentStep, setCurrentStep] = useState(0);
     const [isReading, setIsReading] = useState(false);
-    const [isListening, setIsListening] = useState(false);
     const [transcript, setTranscript] = useState('');
 
     // Letters Tap State
     const [letterIndex, setLetterIndex] = useState(-1);
     const [tapErrors, setTapErrors] = useState(0); // taps on non-A or missed A
 
-    const recognitionRef = useRef<any>(null);
     const [testResults, setTestResults] = useState<any>({});
 
-    useEffect(() => {
-        // Initialize Speech Recognition
-        const { webkitSpeechRecognition, SpeechRecognition } = window as unknown as IWindow;
-        const SpeechRecognitionConstructor = SpeechRecognition || webkitSpeechRecognition;
-
-        if (SpeechRecognitionConstructor) {
-            const recognition = new SpeechRecognitionConstructor();
-            recognition.continuous = true;
-            recognition.interimResults = true;
-            recognition.lang = 'es-ES';
-
-            recognition.onresult = (event: any) => {
-                const rawTranscript = Array.from(event.results as SpeechRecognitionResultList)
-                    .map((result: any) => result[0].transcript)
-                    .join(' ');
-
-                setTranscript(rawTranscript);
-            };
-
-            recognition.onerror = (event: any) => {
-                console.error("Speech error", event.error);
-                setIsListening(false);
-            };
-
-            recognition.onend = () => {
-                // Auto-restart if still supposed to be listening? Use manual toggle for now to be safe.
-                if (isListening) recognition.start();
-            };
-
-            recognitionRef.current = recognition;
-        }
-
-        return () => {
-            if (recognitionRef.current) recognitionRef.current.stop();
-        };
-    }, []);
+    // Acumula el texto transcrito por Whisper (no borra lo anterior).
+    const appendTranscript = (text: string) => {
+        setTranscript((prev) => (prev ? `${prev} ${text}` : text));
+    };
 
     // --- Actions ---
 
@@ -102,19 +66,6 @@ export default function AttentionTest() {
         speakNext();
     };
 
-    const toggleListening = () => {
-        if (!recognitionRef.current) return;
-
-        if (isListening) {
-            recognitionRef.current.stop();
-            setIsListening(false);
-        } else {
-            setTranscript('');
-            recognitionRef.current.start();
-            setIsListening(true);
-        }
-    };
-
     // --- Letters Logic ---
     const handleLetterTap = () => {
         // User taps button. Check if current letter is A
@@ -131,19 +82,39 @@ export default function AttentionTest() {
 
     // --- Navigation ---
 
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
     const nextStep = () => {
         // Save results if needed
         if (currentStep === 1) setTestResults({ ...testResults, digitsForward: transcript });
         if (currentStep === 2) setTestResults({ ...testResults, digitsBackward: transcript });
         if (currentStep === 3) setTestResults({ ...testResults, letterErrors: tapErrors });
-        if (currentStep === 4) setTestResults({ ...testResults, serial7: transcript });
 
-        if (currentStep < 5) {
-            setCurrentStep(prev => prev + 1);
-            setTranscript('');
-            setTapErrors(0);
-        } else {
-            navigate(`/tests/${testId}/language`); // Next module
+        setCurrentStep(prev => prev + 1);
+        setTranscript('');
+        setTapErrors(0);
+    };
+
+    // Envía todos los datos de atención al backend para puntuación automática (el paciente no ve el puntaje)
+    const finishModule = async () => {
+        setIsSubmitting(true);
+        const submission = {
+            testId,
+            digitsForward: testResults.digitsForward || '',
+            digitsBackward: testResults.digitsBackward || '',
+            letterErrors: typeof testResults.letterErrors === 'number' ? testResults.letterErrors : tapErrors,
+            serial7: transcript, // paso actual
+        };
+        try {
+            const res = await axios.post(`${API_URL}/attention/submit`, submission);
+            const score = Number(res.data?.score) || 0;
+            localStorage.setItem(`moca_${testId}_attention`, score.toString());
+        } catch (err) {
+            console.error('Attention scoring failed', err);
+            localStorage.setItem(`moca_${testId}_attention`, '0');
+        } finally {
+            setIsSubmitting(false);
+            navigate(`/tests/${testId}/language`);
         }
     };
 
@@ -155,6 +126,7 @@ export default function AttentionTest() {
                 <div className="flex justify-between items-center">
                     <h1 className="text-2xl font-bold text-slate-900">Atención</h1>
                     <span className="text-sm font-medium text-slate-500">Paso {currentStep + 1} de 5</span>
+                    {/* nota: el paso 5 (índice 4) es la resta en serie y finaliza el módulo */}
                 </div>
 
                 <Card className="bg-white p-8">
@@ -174,18 +146,14 @@ export default function AttentionTest() {
                             <h2 className="text-xl font-bold">Serie Numérica (Directa)</h2>
                             <p className="text-blue-800 bg-blue-50 p-4 rounded-lg">"Voy a decirle algunos números. Escuche atentamente y cuando yo termine, repítalos exactamente como yo los dije."</p>
 
-                            <div className="flex justify-center gap-4">
+                            <div className="flex flex-col items-center gap-4">
                                 <Button onClick={() => readSequence(DIGITS_FORWARD)} disabled={isReading}>
                                     {isReading ? '🔊 Leyendo...' : '▶️ Reproducir Serie'}
                                 </Button>
-                                <Button onClick={toggleListening} variant={isListening ? 'destructive' : 'secondary'}>
-                                    {isListening ? '🛑 Detener Escucha' : '🎙️ Responder'}
-                                </Button>
+                                <VoiceRecorder onResult={appendTranscript} idleLabel="🎙️ Responder" />
                             </div>
 
-                            <div className="p-4 bg-slate-100 rounded-lg min-h-[60px]">
-                                {transcript || <span className="text-slate-400 italic">Su respuesta aparecerá aquí...</span>}
-                            </div>
+                            <TranscriptBox transcript={transcript} onClear={() => setTranscript('')} placeholder="Su respuesta aparecerá aquí..." />
 
                             <Button onClick={nextStep} className="w-full">Siguiente</Button>
                         </div>
@@ -197,18 +165,14 @@ export default function AttentionTest() {
                             <h2 className="text-xl font-bold">Serie Numérica (Inversa)</h2>
                             <p className="text-blue-800 bg-blue-50 p-4 rounded-lg">"Ahora voy a decirle otros números, pero cuando yo termine, repítalos AL REVÉS (hacia atrás)."</p>
 
-                            <div className="flex justify-center gap-4">
+                            <div className="flex flex-col items-center gap-4">
                                 <Button onClick={() => readSequence(DIGITS_BACKWARD)} disabled={isReading}>
                                     {isReading ? '🔊 Leyendo...' : '▶️ Reproducir Serie'}
                                 </Button>
-                                <Button onClick={toggleListening} variant={isListening ? 'destructive' : 'secondary'}>
-                                    {isListening ? '🛑 Detener Escucha' : '🎙️ Responder'}
-                                </Button>
+                                <VoiceRecorder onResult={appendTranscript} idleLabel="🎙️ Responder" />
                             </div>
 
-                            <div className="p-4 bg-slate-100 rounded-lg min-h-[60px]">
-                                {transcript || <span className="text-slate-400 italic">Su respuesta aparecerá aquí...</span>}
-                            </div>
+                            <TranscriptBox transcript={transcript} onClear={() => setTranscript('')} placeholder="Su respuesta aparecerá aquí..." />
 
                             <Button onClick={nextStep} className="w-full">Siguiente</Button>
                         </div>
@@ -250,27 +214,13 @@ export default function AttentionTest() {
                             <p className="text-blue-800 bg-blue-50 p-4 rounded-lg">"Ahora, quiero que reste 7 de 100, y luego continúe restando 7 a la cifra anterior hasta que yo le diga que pare."</p>
                             <p className="text-sm text-slate-500">(Ejemplo: 100 - 7 = ?, ? - 7 = ...)</p>
 
-                            <Button onClick={toggleListening} variant={isListening ? 'destructive' : 'primary'} size="lg">
-                                {isListening ? '🛑 Detener Escucha' : '🎙️ Comenzar a Hablar'}
+                            <VoiceRecorder onResult={appendTranscript} idleLabel="🎙️ Comenzar a Hablar" />
+
+                            <TranscriptBox transcript={transcript} onClear={() => setTranscript('')} placeholder="Diga los números..." mono />
+
+                            <Button onClick={finishModule} disabled={isSubmitting} className="w-full">
+                                {isSubmitting ? 'Guardando...' : 'Finalizar Sección'}
                             </Button>
-
-                            <div className="p-4 bg-slate-100 rounded-lg min-h-[100px] text-lg font-mono">
-                                {transcript || <span className="text-slate-400 italic">Diga los números...</span>}
-                            </div>
-
-                            <Button onClick={nextStep} className="w-full">Finalizar Sección</Button>
-                        </div>
-                    )}
-
-                    {/* Finish Step for Debugging/Transition */}
-                    {currentStep === 5 && (
-                        <div className="text-center">
-                            <h2 className="text-xl font-bold mb-4">Sección Completada</h2>
-                            <p>Resultados preliminares:</p>
-                            <pre className="text-left bg-slate-100 p-4 rounded text-xs overflow-auto">
-                                {JSON.stringify(testResults, null, 2)}
-                            </pre>
-                            <Button onClick={nextStep} className="mt-4">Continuar</Button>
                         </div>
                     )}
 

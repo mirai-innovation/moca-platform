@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Query, UseGuards, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards, NotFoundException } from '@nestjs/common';
 import { EvaluationsService, CompleteEvaluationDto } from './evaluations.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -46,5 +46,14 @@ export class EvaluationsController {
   @Get(':id')
   findOne(@CurrentUser() user: { userId: string }, @Param('id') id: string) {
     return this.evaluationsService.findOne(id, user.userId);
+  }
+
+  @Patch(':id/education-adjust')
+  setEducationAdjust(
+    @CurrentUser() user: { userId: string },
+    @Param('id') id: string,
+    @Body() body: { educationAdjust: boolean },
+  ) {
+    return this.evaluationsService.setEducationAdjust(id, user.userId, !!body.educationAdjust);
   }
 }

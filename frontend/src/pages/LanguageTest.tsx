@@ -1,101 +1,46 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
+import { VoiceRecorder, TranscriptBox } from '../components/ui/VoiceRecorder';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 // Task Configuration
 const SENTENCE_1 = "El gato se esconde bajo el sofá cuando los perros entran en la sala";
 const SENTENCE_2 = "Espero que él le entregue el mensaje una vez que ella se lo pida";
-const FLUENCY_TIME = 60; // seconds
-
-// Web Speech API Types
-interface IWindow extends Window {
-    webkitSpeechRecognition: any;
-    SpeechRecognition: any;
-}
+const FLUENCY_TIME = 60; // segundos (guía informativa)
 
 export default function LanguageTest() {
     const { testId = 'demo-test' } = useParams();
     const navigate = useNavigate();
 
-    // Steps: 0=Intro, 1=Sentence1, 2=Sentence2, 3=FluencyIntro, 4=FluencyTask, 5=Finish
+    // Steps: 0=Intro, 1=Sentence1, 2=Sentence2, 3=FluencyIntro, 4=FluencyTask
     const [currentStep, setCurrentStep] = useState(0);
     const [isReading, setIsReading] = useState(false);
-    const [isListening, setIsListening] = useState(false);
     const [transcript, setTranscript] = useState('');
 
-    // Fluency State
+    // Cronómetro informativo de la fluidez
     const [timeLeft, setTimeLeft] = useState(FLUENCY_TIME);
-    const [wordCount, setWordCount] = useState(0);
+    const [timerStarted, setTimerStarted] = useState(false);
 
-    const recognitionRef = useRef<any>(null);
     const [testResults, setTestResults] = useState<any>({});
 
+    // Cuenta regresiva informativa (no detiene la grabación automáticamente)
     useEffect(() => {
-        // Initialize Speech Recognition
-        const { webkitSpeechRecognition, SpeechRecognition } = window as unknown as IWindow;
-        if (!SpeechRecognition && !webkitSpeechRecognition) return;
+        if (!timerStarted || timeLeft <= 0) return;
+        const id = setInterval(() => setTimeLeft((t) => (t > 0 ? t - 1 : 0)), 1000);
+        return () => clearInterval(id);
+    }, [timerStarted, timeLeft]);
 
-        const SpeechRecognitionConstructor = SpeechRecognition || webkitSpeechRecognition;
-        const recognition = new SpeechRecognitionConstructor();
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        recognition.lang = 'es-ES';
+    // Acumula el texto transcrito por Whisper (no borra lo anterior).
+    const appendTranscript = (text: string) => {
+        setTranscript((prev) => (prev ? `${prev} ${text}` : text));
+    };
 
-        recognition.onresult = (event: any) => {
-            const rawTranscript = Array.from(event.results as SpeechRecognitionResultList)
-                .map((result: any) => result[0].transcript)
-                .join(' ');
-
-            setTranscript(rawTranscript);
-
-            // Simple word count approximation for Fluency task
-            if (currentStep === 4) {
-                const words = rawTranscript.trim().split(/\s+/).filter(w => w.length > 0);
-                setWordCount(words.length);
-            }
-        };
-
-        recognition.onerror = (event: any) => {
-            console.error("Speech error", event.error);
-            setIsListening(false);
-        };
-
-        recognition.onend = () => {
-            // Auto-restart if in fluency task and still have time
-            if (currentStep === 4 && timeLeft > 0 && isListening) {
-                recognition.start();
-            } else {
-                setIsListening(false);
-            }
-        };
-
-        recognitionRef.current = recognition;
-
-        return () => {
-            recognition.stop();
-        };
-    }, [currentStep, timeLeft]);
-
-    // Timer logic
-    useEffect(() => {
-        let interval: any;
-        if (currentStep === 4 && isListening && timeLeft > 0) {
-            interval = setInterval(() => {
-                setTimeLeft(prev => {
-                    if (prev <= 1) {
-                        // Time's up
-                        if (recognitionRef.current) recognitionRef.current.stop();
-                        setIsListening(false);
-                        return 0;
-                    }
-                    return prev - 1;
-                });
-            }, 1000);
-        }
-        return () => clearInterval(interval);
-    }, [currentStep, isListening, timeLeft]);
-
+    // Conteo aproximado de palabras (para la fluidez)
+    const wordCount = transcript.trim() ? transcript.trim().split(/\s+/).length : 0;
 
     // --- Actions ---
 
@@ -109,35 +54,38 @@ export default function LanguageTest() {
         window.speechSynthesis.speak(utterance);
     };
 
-    const toggleListening = () => {
-        if (!recognitionRef.current) return;
-
-        if (isListening) {
-            recognitionRef.current.stop();
-            setIsListening(false);
-        } else {
-            setTranscript('');
-            if (currentStep === 4) setWordCount(0); // Reset for fluency
-            recognitionRef.current.start();
-            setIsListening(true);
-        }
-    };
-
     // --- Navigation ---
+
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     const nextStep = () => {
         // Save results
         if (currentStep === 1) setTestResults({ ...testResults, sentence1: transcript });
         if (currentStep === 2) setTestResults({ ...testResults, sentence2: transcript });
-        if (currentStep === 4) setTestResults({ ...testResults, fluency: { words: transcript, count: wordCount } });
 
-        if (currentStep < 5) {
-            setCurrentStep(prev => prev + 1);
-            setTranscript('');
-            setIsListening(false);
-            if (currentStep === 3) setTimeLeft(FLUENCY_TIME); // Reset timer before fluency task calls
-        } else {
-            navigate(`/tests/${testId}/abstraction`); // Next module
+        setCurrentStep(prev => prev + 1);
+        setTranscript('');
+    };
+
+    // Envía todos los datos de lenguaje al backend para puntuación automática (el paciente no ve el puntaje)
+    const finishModule = async () => {
+        setIsSubmitting(true);
+        const submission = {
+            testId,
+            sentence1: testResults.sentence1 || '',
+            sentence2: testResults.sentence2 || '',
+            fluencyWords: transcript, // paso de fluidez actual
+        };
+        try {
+            const res = await axios.post(`${API_URL}/language/submit`, submission);
+            const score = Number(res.data?.score) || 0;
+            localStorage.setItem(`moca_${testId}_language`, score.toString());
+        } catch (err) {
+            console.error('Language scoring failed', err);
+            localStorage.setItem(`moca_${testId}_language`, '0');
+        } finally {
+            setIsSubmitting(false);
+            navigate(`/tests/${testId}/abstraction`);
         }
     };
 
@@ -148,7 +96,7 @@ export default function LanguageTest() {
             <div className="max-w-3xl mx-auto space-y-8">
                 <div className="flex justify-between items-center">
                     <h1 className="text-2xl font-bold text-slate-900">Lenguaje</h1>
-                    <span className="text-sm font-medium text-slate-500">Paso {currentStep + 1} de 6</span>
+                    <span className="text-sm font-medium text-slate-500">Paso {currentStep + 1} de 5</span>
                 </div>
 
                 <Card className="bg-white p-8">
@@ -168,18 +116,14 @@ export default function LanguageTest() {
                             <h2 className="text-xl font-bold">Repetición de Frases (1)</h2>
                             <p className="text-blue-800 bg-blue-50 p-4 rounded-lg">"Le voy a leer una frase. Repítala exactamente cuando yo termine."</p>
 
-                            <div className="flex justify-center gap-4">
+                            <div className="flex flex-col items-center gap-4">
                                 <Button onClick={() => readText(SENTENCE_1)} disabled={isReading}>
                                     {isReading ? '🔊 Leyendo...' : '▶️ Escuchar Frase'}
                                 </Button>
-                                <Button onClick={toggleListening} variant={isListening ? 'destructive' : 'secondary'}>
-                                    {isListening ? '🛑 Detener' : '🎙️ Repetir'}
-                                </Button>
+                                <VoiceRecorder onResult={appendTranscript} idleLabel="🎙️ Repetir" />
                             </div>
 
-                            <div className="p-4 bg-slate-100 rounded-lg min-h-[60px]">
-                                {transcript || <span className="text-slate-400 italic">Su respuesta...</span>}
-                            </div>
+                            <TranscriptBox transcript={transcript} onClear={() => setTranscript('')} placeholder="Su respuesta..." />
 
                             <Button onClick={nextStep} className="w-full">Siguiente</Button>
                         </div>
@@ -191,18 +135,14 @@ export default function LanguageTest() {
                             <h2 className="text-xl font-bold">Repetición de Frases (2)</h2>
                             <p className="text-blue-800 bg-blue-50 p-4 rounded-lg">"Ahora le voy a leer otra frase. Repítala exactamente cuando yo termine."</p>
 
-                            <div className="flex justify-center gap-4">
+                            <div className="flex flex-col items-center gap-4">
                                 <Button onClick={() => readText(SENTENCE_2)} disabled={isReading}>
                                     {isReading ? '🔊 Leyendo...' : '▶️ Escuchar Frase'}
                                 </Button>
-                                <Button onClick={toggleListening} variant={isListening ? 'destructive' : 'secondary'}>
-                                    {isListening ? '🛑 Detener' : '🎙️ Repetir'}
-                                </Button>
+                                <VoiceRecorder onResult={appendTranscript} idleLabel="🎙️ Repetir" />
                             </div>
 
-                            <div className="p-4 bg-slate-100 rounded-lg min-h-[60px]">
-                                {transcript || <span className="text-slate-400 italic">Su respuesta...</span>}
-                            </div>
+                            <TranscriptBox transcript={transcript} onClear={() => setTranscript('')} placeholder="Su respuesta..." />
 
                             <Button onClick={nextStep} className="w-full">Siguiente</Button>
                         </div>
@@ -231,38 +171,29 @@ export default function LanguageTest() {
                         <div className="space-y-6 text-center">
                             <h2 className="text-xl font-bold">Fluidez Verbal (Letra P)</h2>
 
-                            <div className="text-5xl font-mono font-bold text-slate-700 mb-4">
+                            <div className={`text-5xl font-mono font-bold mb-2 ${timeLeft <= 10 && timerStarted ? 'text-red-600' : 'text-slate-700'}`}>
                                 00:{timeLeft < 10 ? `0${timeLeft}` : timeLeft}
                             </div>
+                            <p className="text-sm text-slate-500">
+                                Grabe diciendo palabras con "P" durante ~1 minuto. Puede grabar varias veces; el tiempo es una guía.
+                            </p>
 
-                            <div className="flex justify-center gap-4">
-                                <Button onClick={toggleListening} variant={isListening ? 'destructive' : 'primary'} size="lg">
-                                    {isListening ? '🛑 Detener' : '🎙️ Comenzar (Inicia Tiempo)'}
-                                </Button>
+                            <div className="flex justify-center">
+                                <VoiceRecorder
+                                    onResult={appendTranscript}
+                                    idleLabel="🎙️ Grabar palabras"
+                                    onRecordingChange={(rec) => { if (rec) setTimerStarted(true); }}
+                                />
                             </div>
 
-                            <div className="mt-4">
-                                <span className="text-sm font-bold uppercase text-slate-500">Palabras Detectadas (Aprox): {wordCount}</span>
-                                <div className="p-4 bg-slate-100 rounded-lg min-h-[100px] mt-2 text-left text-sm max-h-40 overflow-auto">
-                                    {transcript || <span className="text-slate-400 italic">Las palabras aparecerán aquí...</span>}
-                                </div>
+                            <div className="mt-2">
+                                <span className="text-sm font-bold uppercase text-slate-500">Palabras (aprox): {wordCount}</span>
+                                <TranscriptBox transcript={transcript} onClear={() => setTranscript('')} placeholder="Las palabras aparecerán aquí..." />
                             </div>
 
-                            {timeLeft === 0 && (
-                                <Button onClick={nextStep} className="w-full animate-bounce">Tiempo terminado - Continuar</Button>
-                            )}
-                        </div>
-                    )}
-
-                    {/* Finish Step */}
-                    {currentStep === 5 && (
-                        <div className="text-center">
-                            <h2 className="text-xl font-bold mb-4">Sección Completada</h2>
-                            <p>Resultados preliminares:</p>
-                            <pre className="text-left bg-slate-100 p-4 rounded text-xs overflow-auto">
-                                {JSON.stringify(testResults, null, 2)}
-                            </pre>
-                            <Button onClick={nextStep} className="mt-4">Continuar</Button>
+                            <Button onClick={finishModule} disabled={isSubmitting || !transcript} className="w-full">
+                                {isSubmitting ? 'Guardando...' : 'Continuar →'}
+                            </Button>
                         </div>
                     )}
 

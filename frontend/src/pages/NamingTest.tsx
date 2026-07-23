@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
-import type { IdentificationTaskId, IdentificationResultDTO } from '@moca/shared';
+import type { IdentificationTaskId } from '@moca/shared';
 
 // Placeholder for images - User will add them to public/assets
 const ANIMALS = [
@@ -21,46 +21,31 @@ export default function NamingTest() {
         NAMING_CAMEL: ''
     });
 
-    const [result, setResult] = useState<IdentificationResultDTO | null>(null);
-
     const handleChange = (id: string, val: string) => {
         setAnswers(prev => ({ ...prev, [id]: val }));
     };
 
+    // Puntúa localmente y guarda en localStorage (el paciente no ve el resultado)
     const handleEvaluate = () => {
-        // Deterministic local scoring (as requested, NO API needed)
-        // Accepted answers (case insensitive, trimmed)
         const ACCEPTED_ANSWERS: Record<string, string[]> = {
             NAMING_LION: ['leon', 'león', 'lion'],
             NAMING_RHINO: ['rinoceronte', 'rhino', 'rhinoceros'],
-            NAMING_CAMEL: ['camello', 'camel', 'dromedario'] // Dromedary often accepted in casual context though scientifically different, strict MoCA manual says "Camel". We allow common variations.
+            NAMING_CAMEL: ['camello', 'camel', 'dromedario']
         };
 
-        const newResults: any = {};
         let score = 0;
-
         ANIMALS.forEach(animal => {
             const userVal = (answers[animal.id] || '').toLowerCase().trim();
             const correct = ACCEPTED_ANSWERS[animal.id].some(a => userVal.includes(a));
             if (correct) score++;
-
-            newResults[animal.id] = {
-                correct,
-                userAnswer: answers[animal.id]
-            };
         });
 
-        setResult({
-            totalScore: score,
-            results: newResults
-        });
-
-        // Save to LocalStorage for Final Report
         localStorage.setItem(`moca_${testId}_naming`, score.toString());
     };
 
     const handleContinue = () => {
-        // Navigate to next module (Memory)
+        // Puntúa en silencio (sin mostrar resultado al paciente) y avanza al siguiente módulo
+        handleEvaluate();
         navigate(`/tests/${testId}/memory`);
     };
 
@@ -93,28 +78,13 @@ export default function NamingTest() {
                                     type="text"
                                     value={answers[animal.id]}
                                     onChange={(e) => handleChange(animal.id, e.target.value)}
-                                    disabled={!!result} // Disable after evaluation
                                     placeholder="Nombre del animal..."
                                     className="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-brand-500 outline-none text-center font-medium"
                                 />
-                                {result && (
-                                    <div className={`text-sm font-bold ${result.results[animal.id].correct ? 'text-green-600' : 'text-red-500'}`}>
-                                        {result.results[animal.id].correct ? '✓ Correcto' : '✗ Incorrecto'}
-                                    </div>
-                                )}
                             </div>
                         ))}
                     </div>
                 </Card>
-
-                {result && (
-                    <Card className={result.totalScore === 3 ? "bg-green-50 border-green-200" : "bg-white"}>
-                        <div className="text-center">
-                            <h3 className="text-xl font-bold mb-2">Puntaje Total: {result.totalScore} / 3</h3>
-                            <p className="text-slate-600 mb-4">La evaluación se ha completado.</p>
-                        </div>
-                    </Card>
-                )}
 
                 <div className="flex justify-between border-t border-slate-200 pt-6">
                     <Button
@@ -124,15 +94,9 @@ export default function NamingTest() {
                         ← Anterior (Visuoespacial)
                     </Button>
 
-                    {!result ? (
-                        <Button onClick={handleEvaluate} className="bg-brand-600 hover:bg-brand-700 text-white">
-                            Evaluar Respuestas
-                        </Button>
-                    ) : (
-                        <Button onClick={handleContinue} variant="primary">
-                            Continuar →
-                        </Button>
-                    )}
+                    <Button onClick={handleContinue} variant="primary">
+                        Continuar →
+                    </Button>
                 </div>
             </div>
         </div>

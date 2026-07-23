@@ -33,6 +33,7 @@ export default function EvaluationReport() {
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [savingAdjust, setSavingAdjust] = useState(false);
 
   useEffect(() => {
     if (!evaluationId) return;
@@ -42,6 +43,16 @@ export default function EvaluationReport() {
       .catch(() => setError('Error al cargar el reporte'))
       .finally(() => setLoading(false));
   }, [evaluationId]);
+
+  const handleToggleEducationAdjust = (value: boolean) => {
+    if (!evaluationId) return;
+    setSavingAdjust(true);
+    apiClient()
+      .patch<Evaluation>(`/evaluations/${evaluationId}/education-adjust`, { educationAdjust: value })
+      .then((res) => setEvaluation(res.data))
+      .catch(() => setError('Error al actualizar el ajuste'))
+      .finally(() => setSavingAdjust(false));
+  };
 
   if (loading) return <div className="text-slate-600">Cargando...</div>;
   if (error || !evaluation) return <div className="text-red-600">{error || 'Reporte no encontrado'}</div>;
@@ -105,9 +116,19 @@ export default function EvaluationReport() {
             </tbody>
           </table>
         </div>
-        {evaluation.educationAdjust && (
-          <p className="mt-4 text-slate-600 text-sm">Ajuste por estudios ≤ 12 años: +1 punto</p>
-        )}
+        <div className="mt-6 flex items-center gap-3 p-4 bg-slate-50 rounded-lg">
+          <input
+            type="checkbox"
+            id="eduAdjust"
+            className="w-5 h-5"
+            checked={evaluation.educationAdjust}
+            disabled={savingAdjust}
+            onChange={(e) => handleToggleEducationAdjust(e.target.checked)}
+          />
+          <label htmlFor="eduAdjust" className="text-sm text-slate-700">
+            El paciente tiene ≤ 12 años de estudios (+1 punto){savingAdjust ? ' · guardando…' : ''}
+          </label>
+        </div>
         <div className={`mt-8 p-8 rounded-xl text-center border-2 ${verdict.bg} ${verdict.color} border-current`}>
           <h3 className="text-2xl font-bold uppercase mb-2">Puntuación Total</h3>
           <div className="text-6xl font-black mb-4">

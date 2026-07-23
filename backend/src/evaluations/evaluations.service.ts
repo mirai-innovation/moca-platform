@@ -84,4 +84,26 @@ export class EvaluationsService {
     }
     return evalDoc;
   }
+
+  private recomputeTotal(evalDoc: EvaluationDocument): number {
+    return Math.min(
+      30,
+      evalDoc.visuospatial +
+        evalDoc.naming +
+        evalDoc.attention +
+        evalDoc.language +
+        evalDoc.abstraction +
+        evalDoc.delayedRecall +
+        evalDoc.orientation +
+        (evalDoc.educationAdjust ? 1 : 0),
+    );
+  }
+
+  async setEducationAdjust(id: string, professionalId: string, educationAdjust: boolean): Promise<EvaluationDocument> {
+    const evalDoc = await this.findOne(id, professionalId);
+    evalDoc.educationAdjust = educationAdjust;
+    evalDoc.total = this.recomputeTotal(evalDoc);
+    await evalDoc.save();
+    return evalDoc;
+  }
 }
