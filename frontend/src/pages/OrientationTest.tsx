@@ -5,6 +5,8 @@ import { Card } from '../components/ui/Card';
 import { useTTS } from '../hooks/useTTS';
 import axios from 'axios';
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
 const OrientationTest: React.FC = () => {
     const { testId } = useParams<{ testId: string }>();
     const navigate = useNavigate();
@@ -42,7 +44,7 @@ const OrientationTest: React.FC = () => {
 
         setIsSubmitting(true);
         try {
-            const response = await axios.post(`http://localhost:3000/orientation/submit`, {
+            const response = await axios.post(`${API_URL}/orientation/submit`, {
                 testId,
                 taskId: "DATE_FULL", // Combined task key
                 data: {

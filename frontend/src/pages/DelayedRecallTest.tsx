@@ -5,6 +5,8 @@ import { Card } from '../components/ui/Card';
 import { useTTS } from '../hooks/useTTS';
 import axios from 'axios';
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
 const TARGET_WORDS = ['ROSTRO', 'SEDA', 'IGLESIA', 'CLAVEL', 'ROJO'];
 
 const CUES: Record<string, { category: string; choices: string[] }> = {
@@ -96,7 +98,7 @@ const DelayedRecallTest: React.FC = () => {
 
     const submitResults = async (spontaneousWords: string[]) => {
         try {
-            const response = await axios.post(`http://localhost:3000/delayed-recall/submit`, {
+            const response = await axios.post(`${API_URL}/delayed-recall/submit`, {
                 testId,
                 taskId: "RECALL_SPONTANEOUS",
                 data: { words: spontaneousWords },
