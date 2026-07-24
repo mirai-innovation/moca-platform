@@ -37,10 +37,18 @@ export default function AttentionTest() {
 
     // --- Actions ---
 
-    // Series numéricas: una sola locución natural en español (ElevenLabs).
+    // Series numéricas: se leen como PALABRAS en español ("dos. uno. ocho...") con
+    // pausas claras entre cada una, para que se entiendan bien (leer las cifras "2,1,8"
+    // hacía que la voz las pronunciara raro o las juntara).
+    const DIGIT_WORDS: Record<string, string> = {
+        '0': 'cero', '1': 'uno', '2': 'dos', '3': 'tres', '4': 'cuatro',
+        '5': 'cinco', '6': 'seis', '7': 'siete', '8': 'ocho', '9': 'nueve',
+    };
+
     const playDigits = async (sequence: string[]) => {
         setIsReading(true);
-        await speak(sequence.join(', '));
+        const spoken = sequence.map((d) => DIGIT_WORDS[d] ?? d).join('. ');
+        await speak(spoken + '.');
         setIsReading(false);
     };
 
